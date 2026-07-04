@@ -15,25 +15,80 @@ This generator creates 1,000+ application records with:
 
 ## Quick Start
 
-### 1. Install Dependencies
+### 1. Install Dataset-Generator Dependencies
 
 ```bash
 pip install -r requirements.txt
 ```
 
-### 2. Generate Dataset (Default: 1,000 records)
-
-```bash
-python cmdb_synthetic_dataset.py
-```
-
-### 3. Generate with Validation
+### 2. Generate the Synthetic Dataset
 
 ```bash
 python cmdb_synthetic_dataset.py complex_cmdb_synthetic.jsonl 2000 --validate
 ```
 
-### 4. Output Example
+### 3. Fine-Tune BitNet on Google Colab (GPU)
+
+Open `training.ipynb` in Colab with a GPU runtime. Point it at your generated
+`complex_cmdb_synthetic.jsonl` (expected under `My Drive/Colab Notebooks/`), then
+run all cells. This produces two local folders inside the Colab runtime:
+
+- `./bitnet-cmdb-final-adapter` — the LoRA adapter only
+- `./bitnet-cmdb-final-merged` — the adapter merged into the base model (needed below)
+
+Download `bitnet-cmdb-final-merged/` to your local machine — either from the
+notebook's Google Drive backup archive, or its optional Hugging Face Hub push.
+
+### 4. (Optional) Sanity-Check the Merged Model Locally
+
+```bash
+pip install -r requirements-local.txt
+python inference_test.py
+```
+
+This loads the merged bf16 model directly via `transformers` on CPU as a quick
+smoke test — it is **not** the efficient ternary BitNet inference path, just a
+check that the fine-tune learned the task before you quantize it.
+
+### 5. Convert the Merged Model to GGUF (i2_s)
+
+Clone Microsoft's BitNet repo as a **sibling** directory of this project:
+
+```console
+# From the parent directory of cmdb-generator/
+git clone --recursive https://github.com/microsoft/BitNet.git
+cd BitNet
+
+py -3.11 -m venv .venv311
+.\.venv311\Scripts\activate
+
+pip install -r requirements.txt
+
+# convert-helper-bitnet.py expects only one positional argument: <model-directory>
+python ./utils/convert-helper-bitnet.py ../cmdb-generator/bitnet-cmdb-final-merged -q i2_s
+
+# output is written inside the model directory as ggml-model-i2s-bitnet.gguf
+```
+
+### 6. Serve the Quantized Model
+
+```console
+python run_inference.py -m ../cmdb-generator/bitnet-cmdb-final-merged/ggml-model-i2s-bitnet.gguf --host 0.0.0.0 --port 8080
+```
+
+This starts an OpenAI-API-compatible server on port 8080, which `cmdbAgent.html` talks to.
+
+### 7. Run the Demo UI and Feedback Logger
+
+```bash
+python app_logger.py    # Terminal 1 — feedback logging server on port 5000
+```
+
+Then open `cmdbAgent.html` in a browser (Terminal 2 is just the running server above).
+Submit a request through the UI, and use the Yes/No feedback control to log corrections
+to `cmdb_feedback_loop.csv` for future retraining.
+
+### 8. Output Example
 
 ```json
 {
@@ -141,11 +196,15 @@ Risk Levels:
 
 ```
 cmdb-generator/
-├── cmdb_synthetic_dataset.py    # Main generator script
-├── requirements.txt             # Python dependencies
+├── cmdb_synthetic_dataset.py    # Synthetic CMDB dataset generator
+├── training.ipynb               # Colab notebook: LoRA fine-tune + merge BitNet
+├── inference_test.py            # Local pre-quantization sanity check (bf16, CPU)
+├── app_logger.py                # Flask feedback-logging server (port 5000)
+├── cmdbAgent.html                # Demo UI, talks to the bitnet.cpp server (port 8080)
+├── requirements.txt             # Deps for the dataset generator
+├── requirements-local.txt       # Deps for inference_test.py + app_logger.py
 ├── README.md                    # This file
-└── output/
-    └── complex_cmdb_synthetic.jsonl  # Generated dataset
+└── complex_cmdb_synthetic.jsonl  # Generated dataset (gitignored, regenerate as needed)
 ```
 
 ## Customization
@@ -188,10 +247,17 @@ python -c "import json; print(json.dumps(json.loads(open('test.jsonl').readline(
 
 ## Requirements
 
+Dataset generation (`requirements.txt`):
 - Python 3.8+
 - faker >= 18.0
 - pandas >= 1.5.0
 - numpy >= 1.24.0
+
+Local inference sanity-check + feedback server (`requirements-local.txt`):
+- torch, transformers (pinned commit — needed for BitNet architecture support), flask, flask-cors
+
+Colab-side fine-tuning dependencies (`trl`, `accelerate`, `peft`) are installed inline in
+`training.ipynb` since training only ever runs on Colab, not locally.
 
 ## Use Cases
 

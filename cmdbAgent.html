@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CMDB Product Selector AI</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+
+<body class="bg-gray-50 min-h-screen p-8">
+    <div class="max-w-2xl mx-auto bg-white rounded-xl shadow-md p-6">
+        <h1 class="text-2xl font-bold text-gray-800 mb-2">CMDB Decision Engine</h1>
+        <p class="text-gray-600 mb-6">Powered by BitNet 1.58-bit LLM</p>
+
+        <div class="space-y-4">
+            <div>
+                <label class="block text-sm font-medium text-gray-700">Application Name</label>
+                <input type="text" id="appName" class="w-full border rounded-md p-2 mt-1"
+                    placeholder="e.g. Wealth-Portal-v2">
+            </div>
+
+            <div class="grid grid-cols-3 gap-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">TCF Availability</label>
+                    <select id="avail" class="w-full border rounded-md p-2 mt-1">
+                        <option>Gold</option>
+                        <option>Silver</option>
+                        <option>Bronze</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">Sensitivity</label>
+                    <select id="sens" class="w-full border rounded-md p-2 mt-1">
+                        <option>Restricted</option>
+                        <option>Private</option>
+                        <option>Public</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">Classification</label>
+                    <select id="classif" class="w-full border rounded-md p-2 mt-1">
+                        <option>Highly Confidential</option>
+                        <option>Confidential</option>
+                        <option>Internal</option>
+                    </select>
+                </div>
+            </div>
+
+            <button onclick="getRecommendation()"
+                class="w-full bg-blue-600 text-white font-bold py-3 rounded-md hover:bg-blue-700 transition">
+                Analyze Requirements
+            </button>
+        </div>
+
+        <div id="resultBox" class="mt-8 p-4 bg-blue-50 border border-blue-200 rounded-md hidden">
+            <h2 class="font-bold text-blue-900">AI Recommendation:</h2>
+            <p id="recommendationText" class="text-blue-800 mt-2 italic"></p>
+        </div>
+    </div>
+    <div id="feedbackSection" class="mt-4 pt-4 border-t border-blue-200">
+        <p class="text-sm text-blue-900 font-semibold mb-2">Was this recommendation accurate?</p>
+        <div class="flex gap-2">
+            <button onclick="sendFeedback(true)"
+                class="bg-green-600 text-white px-3 py-1 rounded text-sm hover:bg-green-700">Yes, Correct</button>
+            <button onclick="showCorrection()"
+                class="bg-red-600 text-white px-3 py-1 rounded text-sm hover:bg-red-700">No, Incorrect</button>
+        </div>
+
+        <div id="correctionInput" class="mt-3 hidden">
+            <label class="block text-xs font-medium text-gray-700">What was the expected product?</label>
+            <input type="text" id="expectedProduct" class="w-full border rounded p-1 text-sm mt-1"
+                placeholder="e.g. On-Prem Isolated">
+            <button onclick="sendFeedback(false)"
+                class="mt-2 bg-gray-800 text-white px-3 py-1 rounded text-xs w-full">Submit Correction</button>
+        </div>
+    </div>
+
+    <script>
+        async function getRecommendation() {
+            const app = document.getElementById('appName').value;
+            const avail = document.getElementById('avail').value;
+            const sens = document.getElementById('sens').value;
+            const classif = document.getElementById('classif').value;
+            const resultBox = document.getElementById('resultBox');
+            const recText = document.getElementById('recommendationText');
+
+            recText.innerText = "Consulting BitNet model...";
+            resultBox.classList.remove('hidden');
+
+            const prompt = `App Name: ${app} | TCF Availability: ${avail} | Sensitivity: ${sens} | Classification: ${classif}`;
+
+            try {
+                const response = await fetch('http://localhost:8080/v1/chat/completions', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        model: "bitnet-cmdb",
+                        messages: [{ role: "user", content: prompt }]
+                    })
+                });
+                const data = await response.json();
+                recText.innerText = data.choices[0].message.content;
+            } catch (error) {
+                recText.innerText = "Error: Ensure your BitNet API server is running on localhost:8080.";
+            }
+        }
+        function showCorrection() {
+            document.getElementById('correctionInput').classList.remove('hidden');
+        }
+
+        async function sendFeedback(isCorrect) {
+            const payload = {
+                app_name: document.getElementById('appName').value,
+                attributes: {
+                    avail: document.getElementById('avail').value,
+                    sens: document.getElementById('sens').value,
+                    classif: document.getElementById('classif').value
+                },
+                ai_recommendation: document.getElementById('recommendationText').innerText,
+                is_correct: isCorrect,
+                correction: isCorrect ? null : document.getElementById('expectedProduct').value,
+                timestamp: new Date().toISOString()
+            };
+
+            // Send this to a small Python logging server (see below)
+            try {
+                await fetch('http://localhost:5000/log_feedback', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                alert("Feedback saved! This will be used to retrain the model.");
+                document.getElementById('resultBox').classList.add('hidden');
+            } catch (e) {
+                console.error("Feedback server not running.");
+                alert("Feedback saved locally to console (Server not detected).");
+                console.log("Feedback Data:", payload);
+            }
+        }
+    </script>
+</body>
+
+</html>

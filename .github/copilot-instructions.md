@@ -95,6 +95,25 @@ python cmdb_synthetic_dataset.py data.jsonl 100 --validate
 3. Validate: `--validate` flag for statistics
 4. Use with Hugging Face SFTTrainer for BitNet fine-tuning
 
+## Local BitNet Inference Pipeline
+
+Beyond dataset generation, this repo also carries the local half of a BitNet
+fine-tuning/serving pipeline:
+
+- `training.ipynb` — Colab-only LoRA fine-tune of `microsoft/bitnet-b1.58-2B-4T-bf16`,
+  saves `./bitnet-cmdb-final-adapter` (LoRA adapter) and `./bitnet-cmdb-final-merged`
+  (merged weights). Training never runs locally.
+- `inference_test.py` — local bf16-on-CPU sanity check of the merged model, run
+  *before* quantization (`pip install -r requirements-local.txt` first).
+- Convert the merged model to GGUF (`i2_s`) via a sibling clone of
+  `microsoft/BitNet` and its `convert-helper-bitnet.py`, then serve it with
+  `run_inference.py --host --port 8080` (OpenAI-compatible API).
+- `cmdbAgent.html` — demo UI that calls the port-8080 server.
+- `app_logger.py` — Flask server (port 5000) that logs UI feedback to
+  `cmdb_feedback_loop.csv` for future retraining.
+
+See `README.md` Quick Start steps 3-7 for the full sequence.
+
 ---
 
 **For detailed documentation**, see README.md  

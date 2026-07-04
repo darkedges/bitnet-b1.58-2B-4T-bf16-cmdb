@@ -1,0 +1,4 @@
+git+https://github.com/huggingface/transformers.git@096f25ae1f501a084d8ff2dcaf25fbc2bd60eba4
+torch>=2.2.0
+flask>=3.0.0
+flask-cors>=4.0.0

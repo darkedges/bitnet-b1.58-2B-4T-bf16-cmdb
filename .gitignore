@@ -1,2 +1,17 @@
-test_output.jsonl
-training.py
+# Generated dataset outputs (regenerate via cmdb_synthetic_dataset.py)
+*.jsonl
+
+# Local Python virtual environment
+.venv/
+
+# Salesforce DX metadata cache (unrelated scratch dir)
+.sfdx/
+
+# Local/converted BitNet model artifacts (build outputs, not source)
+bitnet-cmdb-final-adapter/
+bitnet-cmdb-final-merged/
+*.gguf
+*.tar.gz
+
+# Feedback log produced by app_logger.py
+cmdb_feedback_loop.csv
