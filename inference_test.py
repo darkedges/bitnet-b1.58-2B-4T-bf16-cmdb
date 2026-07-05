@@ -2,19 +2,29 @@
 # transformers on CPU to confirm the fine-tune learned the task, BEFORE
 # converting to GGUF/i2_s and serving via bitnet.cpp (see README steps 5-6).
 # This is NOT the efficient ternary BitNet inference path.
+import os
+
+# The BitNet weight-quant kernel is wrapped in torch.compile, whose CPU
+# backend needs the MSVC compiler (cl.exe) on Windows. Run eagerly instead —
+# must be set before torch is imported.
+os.environ["TORCHDYNAMO_DISABLE"] = "1"
+
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoTokenizer, TextStreamer
 
 # 1. Path to your downloaded & extracted model
-model_path = "./bitnet-cmdb-final-merged"
+model_path = "nirving/bitnet-cmdb-final"
 
 print("Loading model into memory...")
 tokenizer = AutoTokenizer.from_pretrained(model_path)
+# trust_remote_code must stay OFF: the BitNet config.json carries an auto_map
+# pointing at remote-code files (configuration_bitnet.py) that were never
+# published, so enabling it makes transformers fetch a nonexistent file
+# instead of using the native BitNet support in the pinned commit.
 model = AutoModelForCausalLM.from_pretrained(
     model_path,
     torch_dtype=torch.bfloat16,
     device_map="cpu",  # Change to "cuda" if you have a local NVIDIA GPU
-    trust_remote_code=True,
 )
 
 
@@ -33,6 +43,9 @@ def ask_cmdb_expert(app_details):
             max_new_tokens=150,
             temperature=0.1,  # Low temperature for consistent logic
             eos_token_id=tokenizer.eos_token_id,
+            # CPU generation is minutes-per-run slow; stream tokens as they
+            # are produced so it's visible that the model isn't hung.
+            streamer=TextStreamer(tokenizer, skip_prompt=True),
         )
 
     response = tokenizer.decode(outputs[0], skip_special_tokens=True)

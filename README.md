@@ -31,26 +31,39 @@ python cmdb_synthetic_dataset.py complex_cmdb_synthetic.jsonl 2000 --validate
 
 Open `training.ipynb` in Colab with a GPU runtime. Point it at your generated
 `complex_cmdb_synthetic.jsonl` (expected under `My Drive/Colab Notebooks/`), then
-run all cells. This produces two local folders inside the Colab runtime:
+run all cells. This performs a **full fine-tune** of the bf16 master weights
+(not LoRA — see the note below) and produces one local folder inside the Colab
+runtime:
 
-- `./bitnet-cmdb-final-adapter` — the LoRA adapter only
-- `./bitnet-cmdb-final-merged` — the adapter merged into the base model (needed below)
+- `./bitnet-cmdb-final-merged` — the fine-tuned model as a single
+  `model.safetensors` (the folder name is historical; nothing is merged)
 
-Download `bitnet-cmdb-final-merged/` to your local machine — either from the
-notebook's Google Drive backup archive, or its optional Hugging Face Hub push.
+The notebook includes an on-GPU smoke test cell — check its output is coherent
+and on-format **before** downloading anything. Then download the folder to your
+local machine — either from the notebook's Google Drive backup archive, or its
+optional Hugging Face Hub push.
 
-### 4. (Optional) Sanity-Check the Merged Model Locally
+> **Why not LoRA?** BitNet quantizes weights to ternary {-1,0,1} at inference.
+> A LoRA adapter trains as a full-precision side branch (`quant(W)x + 2BAx`),
+> but merging it and re-quantizing computes `quant(W + 2BA)x` — the ternary
+> grid rounds the small rank-16 delta into scattered ±1 flips and the merged
+> model collapses (verified: it degenerates into repeating a single token).
+> Full fine-tuning keeps the learning on the ternary grid, so GGUF conversion
+> preserves it.
+
+### 4. (Optional) Sanity-Check the Model Locally
 
 ```bash
 pip install -r requirements-local.txt
 python inference_test.py
 ```
 
-This loads the merged bf16 model directly via `transformers` on CPU as a quick
-smoke test — it is **not** the efficient ternary BitNet inference path, just a
-check that the fine-tune learned the task before you quantize it.
+This loads the fine-tuned bf16 model directly via `transformers` on CPU as a
+quick smoke test — it is **not** the efficient ternary BitNet inference path,
+and at minutes per response it is far slower than the served model. Prefer the
+notebook's on-GPU smoke test; use this only if you skipped it.
 
-### 5. Convert the Merged Model to GGUF (i2_s)
+### 5. Convert the Fine-Tuned Model to GGUF (i2_s)
 
 Clone Microsoft's BitNet repo as a **sibling** directory of this project:
 
@@ -64,10 +77,31 @@ py -3.11 -m venv .venv311
 
 pip install -r requirements.txt
 
+# IMPORTANT: install BitNet's forked gguf-py over the stock pip package —
+# only the fork knows the bitnet-25 GGUF architecture the converter emits.
+pip install ./3rdparty/llama.cpp/gguf-py
+```
+
+Build the binaries (`llama-quantize` is needed by the converter, `llama-server`
+by step 6). On Windows this requires CMake and Visual Studio with the
+**C++ Clang toolset** installed:
+
+```console
+cmake -B build -DBITNET_X86_TL2=OFF -T ClangCL
+cmake --build build --config Release
+```
+
+Then run the conversion. Notes: the model directory must contain a **single**
+`model.safetensors` (the notebook's consolidation cell guarantees this), and
+the helper prints "Convert successfully." but exits 0 even on failure — trust
+the message / output file, not the exit code.
+
+```console
 # convert-helper-bitnet.py expects only one positional argument: <model-directory>
-python ./utils/convert-helper-bitnet.py ../cmdb-generator/bitnet-cmdb-final-merged -q i2_s
+python ./utils/convert-helper-bitnet.py ../cmdb-generator/bitnet-cmdb-final-merged
 
 # output is written inside the model directory as ggml-model-i2s-bitnet.gguf
+# (a ~9GB ggml-model-f32-bitnet.gguf intermediate is left behind — safe to delete)
 ```
 
 ### 6. Serve the Quantized Model
